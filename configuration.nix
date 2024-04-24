@@ -5,10 +5,9 @@
 { config, pkgs, ... }:
 
 {
-  imports =
-    [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
-    ];
+  imports = [ # Include the results of the hardware scan.
+    ./hardware-configuration.nix
+  ];
 
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
@@ -42,8 +41,13 @@
     LC_TIME = "de_DE.UTF-8";
   };
 
+  ## enable firmware updates => trying to solve hdmi issue on thinkpad carbon x1
+  services.fwupd.enable = true;
+
+  
   # Enable the X11 windowing system.
   services.xserver.enable = true;
+
 
   # Enable the GNOME Desktop Environment.
   # services.xserver.displayManager.gdm.enable = true;
@@ -59,17 +63,18 @@
   };
   services.xserver.windowManager.i3 = {
     enable = true;
-    extraPackages = with pkgs; [
-      dmenu
-      i3status
-    ];
+    extraPackages = with pkgs; [ dmenu i3status ];
   };
 
+  # azure data studio had 
+  services.gnome.gnome-keyring.enable = true;
+  
   # Configure keymap in X11
   services.xserver = {
     layout = "de";
     xkbVariant = "";
-    xkbOptions = "ctrl:nocaps"; # This option disables Caps Lock and sets it as Control.    
+    xkbOptions =
+      "ctrl:nocaps"; # This option disables Caps Lock and sets it as Control.
   };
 
   # Configure console keymap
@@ -101,7 +106,8 @@
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users.users.pt = {
     isNormalUser = true;
-    extraGroups = [ "networkmanager" "wheel" ];
+    extraGroups = [ "networkmanager" "wheel" "docker" ];
+    shell = pkgs.zsh;
   };
 
   # passwordless sudo
@@ -110,96 +116,208 @@
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
 
+  fonts.fonts = with pkgs; [
+    martian-mono
+  ];
+
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
-    alacritty
+    (agda.withPackages [ agdaPackages.standard-library ])
     acpi
+    android-studio
+    alacritty
     anki
     binutils
     calibre
     chromium
     cloudcompare
     cmus
+    darktable
+    drawio
+    dig
     emacs
-    firefox
     ffmpeg
     file
+    firefox
+    freeplane
     fzf
     gcc
+    ghc
     gdb
     gimp
     git
     glibcInfo
     gnome.cheese
-    gnupg
-    gnome.gnome-terminal
-    gnome.nautilus
     gnome.dconf-editor
+    gnome.nautilus
+    gnome.pomodoro
+    gnupg
+    graphviz
+    gnuplot
     htop
     iotop
+    ispell
+    inkscape
     jq
+    jetbrains.clion
     killall
+    klavaro
+    kubectl
     libreoffice
+    libsForQt5.kdenlive
     man-pages
+    minikube
+    mailutils
     mplayer
     mpv
     ncdu
+    nload
     nextcloud-client
+    nixfmt
     nmap
     ntfs3g
     openscad
     pandoc
     pass
-    pinentry
     pavucontrol
     pdfarranger
+    pdftk
+    pinentry
     powertop
+    python312
     qtpass
     ranger
     redshift
     restic
     ripgrep
+    jetbrains.rider
     rofi
     screen-message
+    simplescreenrecorder
     scrot
+    sqlitebrowser
     signal-desktop
     skypeforlinux
     smem
+    stack
     sqlite
     sysdig
     sysstat
     tcpdump
+    tmux
+    thunderbird
     tlp
+    tlaplusToolbox
+    texlive.combined.scheme-full
     traceroute
     unzip
+    usbutils # for lsusb
     valgrind
     vim
     vscode
     wget
-    wofi
     wireshark
+    whois
     xclip
     xfce.xfce4-pulseaudio-plugin
+    yewtube
     youtube-dl
     zathura
     zip
     zsh
+    zulip
   ];
+
+  environment.localBinInPath = true;
 
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
   programs.mtr.enable = true;
   programs.gnupg.agent = {
-   enable = true;
-   pinentryFlavor = "curses";
-   enableSSHSupport = true;
+    enable = true;
+    pinentryFlavor = "curses";
+    enableSSHSupport = true;
   };
+
+  programs.zsh.enable = true;
 
   # bluetooth
   hardware.bluetooth.enable = true;
   hardware.bluetooth.powerOnBoot = false;
   services.blueman.enable = true;
+
+  # systemd timers
+  # systemd.timers."sync-gtd-org" = {
+  #   wantedBy = [ "timers.target" ];
+  #   timerConfig = {
+  #     OnBootSec = "5m";
+  #     OnUnitActiveSec = "5m";
+  #     Unit = "sync-gtd-org.service";
+  #   };
+  # };
+
+  systemd.timers."sync-gtd-org" = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "5m";
+      OnUnitActiveSec = "5m";
+      Unit = "sync-gtd-org.service";
+    };
+  };
+
+
+  systemd.services."sync-gtd-org" = {
+    wantedBy = [ "multi-user.target" ];
+    script = ''
+      ${pkgs.rsync}/bin/rsync ~/Nextcloud/org/gtd.org ~/Nextcloud/org/sync/gtd.org
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      User = "pt";
+    };
+
+  };
+
+  systemd.timers."scrape-phone-prices" = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "30m";
+      OnUnitActiveSec = "30m";
+      Unit = "scrape-phone-prices.service";
+    };
+  };
+
+  systemd.services."scrape-phone-prices" = {
+    wantedBy = [ "multi-user.target" ];
+    path = [
+      pkgs.nix
+      pkgs.bash
+      pkgs.scrot      
+      (pkgs.python3.withPackages (ps: with ps; [
+        numpy
+        requests
+        beautifulsoup4
+        pyautogui              
+      ]))
+    ];
+    script = ''
+       python3 /home/pt/repos/phone-prices/scrape-phone-prices.py
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      User = "pt";
+    };
+  };
+
+  system.activationScripts.binbash = {
+    deps = [ "binsh" ];
+    text = ''
+         ln -s /bin/sh /bin/bash
+    '';
+  };
+
+  virtualisation.docker.enable = true;
 
   # List services that you want to enable:
 
